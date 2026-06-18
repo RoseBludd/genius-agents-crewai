@@ -9,7 +9,8 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from agents.crew_runner import run_content_task, run_strategist_task
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+os.environ.setdefault("CREWAI_TELEMETRY", "false")
 
 app = FastAPI(
     title="Genius GTM Agents",
@@ -84,6 +85,8 @@ async def run_content(req: AgentRunRequest):
 
 
 def _execute_agent(agent: str, task: str, model: Optional[str]) -> dict[str, Any]:
+    from agents.crew_runner import run_content_task, run_strategist_task
+
     model_id = model or DEFAULT_MODEL
     try:
         if agent == "strategist":

@@ -4,7 +4,9 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    CREWAI_STORAGE_DIR=/tmp/crewai
+    CREWAI_STORAGE_DIR=/tmp/crewai \
+    OTEL_SDK_DISABLED=true \
+    CREWAI_TELEMETRY=false
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
