@@ -111,23 +111,11 @@ async def run_outreach(req: AgentRunRequest):
 
 
 def _execute_agent(agent: str, task: str, model: Optional[str]) -> dict[str, Any]:
-    from agents.crew_runner import (
-        run_content_task,
-        run_monitor_task,
-        run_outreach_task,
-        run_strategist_task,
-    )
+    from agents.direct_runner import run_agent_direct
 
     model_id = model or DEFAULT_MODEL
     try:
-        if agent == "strategist":
-            response = run_strategist_task(task, model_id)
-        elif agent == "monitor":
-            response = run_monitor_task(task, model_id)
-        elif agent == "outreach":
-            response = run_outreach_task(task, model_id)
-        else:
-            response = run_content_task(task, model_id)
+        response = run_agent_direct(agent, task, model_id)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Agent execution failed: {exc}") from exc
     return {
@@ -135,6 +123,7 @@ def _execute_agent(agent: str, task: str, model: Optional[str]) -> dict[str, Any
         "agent": agent,
         "response": response,
         "model": model_id,
+        "via": "runpod_direct",
     }
 
 
@@ -155,10 +144,17 @@ async def internal_chat_completions(body: dict[str, Any]):
     CrewAI → RunPod proxy with the same model routing as chat.geniuzs.com.
     Normalizes reasoning-model responses (empty content + reasoning field).
     """
-    from agents.runpod_compat import ensure_max_tokens, normalize_completion, resolve_runpod_base, upstream_model_id
+    from agents.runpod_compat import (
+        ensure_max_tokens,
+        normalize_completion,
+        resolve_runpod_base,
+        runpod_api_key,
+        upstream_model_id,
+    )
 
-    if not OPENAI_KEY:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY (RunPod) not configured")
+    api_key = runpod_api_key() or OPENAI_KEY
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY or RUNPOD_API not configured")
 
     model = upstream_model_id(body.get("model", DEFAULT_MODEL))
     payload = ensure_max_tokens(body)
@@ -168,7 +164,7 @@ async def internal_chat_completions(body: dict[str, Any]):
     async with httpx.AsyncClient(timeout=300.0) as client:
         r = await client.post(
             f"{base}/chat/completions",
-            headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
         )
         if r.status_code >= 400:

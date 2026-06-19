@@ -6,13 +6,26 @@ import os
 from typing import Any
 
 
+# Same UI ids → upstream tags as chat.geniuzs.com (patch_branding.py)
+_CADIS_ALIASES = {
+    "cadis": "gemma4:12b",
+    "cadis-fast": "qwen3:8b",
+    "cadis-extended": "gemma4:31b",
+}
+
+
+def runpod_api_key() -> str:
+    """RunPod bearer token — OPENAI_API_KEY on Railway, RUNPOD_API in local .env."""
+    return os.getenv("OPENAI_API_KEY") or os.getenv("RUNPOD_API") or ""
+
+
 def upstream_model_id(model: str) -> str:
-    """Strip openai/ prefix; keep Ollama tags unchanged (gemma4:12b, qwen3:8b, gemma4:31b)."""
+    """Map chat UI ids / openai/ prefix → Ollama tags (gemma4:12b, qwen3:8b, gemma4:31b)."""
     if not model:
-        return os.getenv("GEMMA_MODEL", "gemma4:12b")
+        return os.getenv("GEMMA_MODEL") or os.getenv("OLLAMA_MODEL", "gemma4:12b")
     if model.startswith("openai/"):
-        return model.split("/", 1)[1]
-    return model
+        model = model.split("/", 1)[1]
+    return _CADIS_ALIASES.get(model, model)
 
 
 def resolve_runpod_base(model: str) -> str:
