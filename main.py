@@ -36,6 +36,18 @@ AGENT_CATALOG = {
         "model": "CADIS (RunPod)",
         "description": "Writes Reddit, HN, PH, email, and social copy per channel voice.",
     },
+    "monitor": {
+        "name": "Monitor Agent",
+        "role": "Listener & Intelligence",
+        "model": "CADIS (RunPod)",
+        "description": "Reads PostHog analytics, flags funnel drop-offs and pricing hot leads.",
+    },
+    "outreach": {
+        "name": "Outreach Agent",
+        "role": "Calls & Email Blast",
+        "model": "CADIS (RunPod)",
+        "description": "Personalizes cold and triggered emails for Emailzs sequences.",
+    },
 }
 
 
@@ -55,7 +67,7 @@ class AgentRunRequest(BaseModel):
 
 
 class AgentRunByTypeRequest(AgentRunRequest):
-    agent: Literal["strategist", "content"] = Field(..., description="Agent to run")
+    agent: Literal["strategist", "content", "monitor", "outreach"] = Field(..., description="Agent to run")
 
 
 @app.get("/health")
@@ -84,13 +96,32 @@ async def run_content(req: AgentRunRequest):
     return _execute_agent("content", req.task, req.model)
 
 
+@app.post("/agents/monitor", dependencies=[Depends(require_key)])
+async def run_monitor(req: AgentRunRequest):
+    return _execute_agent("monitor", req.task, req.model)
+
+
+@app.post("/agents/outreach", dependencies=[Depends(require_key)])
+async def run_outreach(req: AgentRunRequest):
+    return _execute_agent("outreach", req.task, req.model)
+
+
 def _execute_agent(agent: str, task: str, model: Optional[str]) -> dict[str, Any]:
-    from agents.crew_runner import run_content_task, run_strategist_task
+    from agents.crew_runner import (
+        run_content_task,
+        run_monitor_task,
+        run_outreach_task,
+        run_strategist_task,
+    )
 
     model_id = model or DEFAULT_MODEL
     try:
         if agent == "strategist":
             response = run_strategist_task(task, model_id)
+        elif agent == "monitor":
+            response = run_monitor_task(task, model_id)
+        elif agent == "outreach":
+            response = run_outreach_task(task, model_id)
         else:
             response = run_content_task(task, model_id)
     except Exception as exc:
