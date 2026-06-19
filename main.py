@@ -22,6 +22,10 @@ API_KEY = os.getenv("LITELLM_MASTER_KEY", "GeniusAgents2026!")
 OPENAI_BASE = os.getenv("OPENAI_API_BASE_URL", "").rstrip("/")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
 DEFAULT_MODEL = os.getenv("GEMMA_MODEL", "gemma4:12b")
+INTERNAL_BASE = os.getenv(
+    "CREWAI_OPENAI_BASE_URL",
+    f"http://127.0.0.1:{os.getenv('PORT', '8080')}/v1/internal",
+).rstrip("/")
 
 AGENT_CATALOG = {
     "strategist": {
@@ -145,16 +149,34 @@ async def list_models():
     }
 
 
-@app.post("/v1/chat/completions", dependencies=[Depends(require_key)])
-async def chat_completions(body: dict[str, Any]):
-    if not OPENAI_BASE or not OPENAI_KEY:
-        raise HTTPException(status_code=503, detail="OPENAI_API_BASE_URL / OPENAI_API_KEY not configured")
+@app.post("/v1/internal/chat/completions")
+async def internal_chat_completions(body: dict[str, Any]):
+    """
+    CrewAI → RunPod proxy with the same model routing as chat.geniuzs.com.
+    Normalizes reasoning-model responses (empty content + reasoning field).
+    """
+    from agents.runpod_compat import ensure_max_tokens, normalize_completion, resolve_runpod_base, upstream_model_id
+
+    if not OPENAI_KEY:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY (RunPod) not configured")
+
+    model = upstream_model_id(body.get("model", DEFAULT_MODEL))
+    payload = ensure_max_tokens(body)
+    payload["model"] = model
+    base = resolve_runpod_base(model)
+
     async with httpx.AsyncClient(timeout=300.0) as client:
         r = await client.post(
-            f"{OPENAI_BASE}/chat/completions",
+            f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
-            json=body,
+            json=payload,
         )
         if r.status_code >= 400:
             raise HTTPException(status_code=r.status_code, detail=r.text[:500])
-        return r.json()
+        return normalize_completion(r.json())
+
+
+@app.post("/v1/chat/completions", dependencies=[Depends(require_key)])
+async def chat_completions(body: dict[str, Any]):
+    """OpenAI-compatible proxy → internal RunPod compat layer."""
+    return await internal_chat_completions(body)

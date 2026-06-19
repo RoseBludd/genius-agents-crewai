@@ -41,6 +41,17 @@ def run_content_task(task: str, model: str | None = None) -> str:
     return str(crew.kickoff())
 
 
+def run_monitor_task(task: str, model: str | None = None) -> str:
+    agent = monitor_agent(model)
+    crew_task = Task(
+        description=task,
+        expected_output=(
+            "A concise monitor report with: (1) top signals from PostHog, "
+            "(2) funnel drop-offs, (3) pricing/outreach hot leads, "
+            "(4) recommended actions for Strategist, Content, or Outreach agents."
+        ),
+        agent=agent,
+    )
     crew = Crew(
         agents=[agent],
         tasks=[crew_task],
