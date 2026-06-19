@@ -1,75 +1,115 @@
 from crewai import Agent
 
 from agents.llm import make_llm
-
-GENIUS_CONTEXT = (
-    "Genius OS is a metadata-driven platform for field service and restoration companies. "
-    "It replaces manual data entry with micro-data architecture, autonomous agents, and "
-    "tenant-specific workflows. GTM channels include Reddit, Hacker News, Product Hunt, "
-    "Emailzs (email), Callerzs/Callzs (voice), Postiz (social), and PostHog analytics at www.analyticzs.com."
-)
+from agents.registry import GENIUS_CONTEXT
 
 
-def strategist_agent(model: str | None = None) -> Agent:
+def _agent(role: str, goal: str, backstory: str, model: str | None = None) -> Agent:
     return Agent(
-        role="GTM Strategist",
-        goal="Plan and sequence Genius OS go-to-market campaigns across all channels",
-        backstory=(
-            f"{GENIUS_CONTEXT} You are the campaign director: you analyze positioning, "
-            "sequence the GTM calendar, research competitor launches, prioritize subreddits "
-            "and outreach lists, and coordinate cross-channel timing."
-        ),
+        role=role,
+        goal=goal,
+        backstory=backstory,
         llm=make_llm(model),
         verbose=False,
         allow_delegation=False,
+    )
+
+
+def strategist_agent(model: str | None = None) -> Agent:
+    return _agent(
+        "GTM Strategist",
+        "Plan and sequence Genius OS go-to-market campaigns across all channels",
+        (
+            f"{GENIUS_CONTEXT} You are the campaign director: analyze positioning, "
+            "sequence the GTM calendar, research competitor launches, prioritize subreddits "
+            "and outreach lists, and coordinate cross-channel timing."
+        ),
+        model,
     )
 
 
 def content_agent(model: str | None = None) -> Agent:
-    return Agent(
-        role="GTM Content Writer",
-        goal="Write platform-specific marketing copy for Genius OS",
-        backstory=(
+    return _agent(
+        "GTM Content Writer",
+        "Write platform-specific marketing copy for Genius OS",
+        (
             f"{GENIUS_CONTEXT} You write Reddit posts, Hacker News Show HN drafts, "
-            "Product Hunt copy, cold email sequences, call scripts, and YouTube metadata. "
-            "You adapt tone per channel: authentic for Reddit, technical for HN, punchy for PH."
+            "Product Hunt copy, cold email sequences, Callerzs call scripts, and YouTube metadata. "
+            "Adapt tone per channel: authentic for Reddit, technical for HN, punchy for PH."
         ),
-        llm=make_llm(model),
-        verbose=False,
-        allow_delegation=False,
+        model,
+    )
+
+
+def visual_agent(model: str | None = None) -> Agent:
+    return _agent(
+        "GTM Visual Designer",
+        "Create visual briefs and FLUX prompts for Genius OS marketing assets",
+        (
+            f"{GENIUS_CONTEXT} You design YouTube thumbnails, social graphics, PH gallery images, "
+            "and ad creatives. Output detailed FLUX prompts with style, lighting, and composition."
+        ),
+        model,
     )
 
 
 def monitor_agent(model: str | None = None) -> Agent:
-    return Agent(
-        role="GTM Monitor Agent",
-        goal="Turn PostHog product analytics into actionable GTM alerts and recommendations",
-        backstory=(
-            f"{GENIUS_CONTEXT} You are the listener and intelligence layer. "
-            "You read PostHog event streams, funnel metrics, campaign landing performance "
-            "(/developers), pricing page repeat visits, and session replay signals. "
-            "Flag pricing page 3+ visit leads for Outreach, highlight funnel drop-offs "
-            "(campaign_landing_view → demo_requested), and suggest concrete next actions."
+    return _agent(
+        "GTM Monitor Agent",
+        "Turn PostHog product analytics into actionable GTM alerts and recommendations",
+        (
+            f"{GENIUS_CONTEXT} You read PostHog event streams, funnel metrics, campaign landing "
+            "performance (/developers), pricing page repeat visits, and session replay signals. "
+            "Flag pricing page 3+ visit leads for Outreach and highlight funnel drop-offs."
         ),
-        llm=make_llm(model),
-        verbose=False,
-        allow_delegation=False,
+        model,
     )
 
 
 def outreach_agent(model: str | None = None) -> Agent:
-    return Agent(
-        role="GTM Outreach Agent",
-        goal="Personalize cold and triggered emails for Genius OS prospects via Emailzs",
-        backstory=(
-            f"{GENIUS_CONTEXT} You specialize in 1:1 outbound email for restoration "
-            "and field-service company owners. You research the prospect context, write "
-            "concise subject lines and body copy with {{name}} and {{company}} merge tags, "
-            "handle objections (pricing, switching cost, AI skepticism), and format output "
-            "as JSON: {\"subject\": \"...\", \"messageText\": \"...\"}. "
-            "Tone: professional, specific, never spammy. Soft CTA only."
+    return _agent(
+        "GTM Outreach Agent",
+        "Personalize cold and triggered outreach for Genius OS prospects",
+        (
+            f"{GENIUS_CONTEXT} You specialize in 1:1 outbound for restoration and field-service "
+            "owners via Emailzs email and Callerzs voice. Format email as JSON with subject and "
+            "messageText; use {{name}} and {{company}} merge tags."
         ),
-        llm=make_llm(model),
-        verbose=False,
-        allow_delegation=False,
+        model,
     )
+
+
+def seo_agent(model: str | None = None) -> Agent:
+    return _agent(
+        "GTM SEO Agent",
+        "Drive organic growth for Genius OS via keyword-targeted content",
+        (
+            f"{GENIUS_CONTEXT} You research restoration software, micro-data, and field-service "
+            "automation keywords. Produce SEO briefs with title tags, meta descriptions, outlines, "
+            "and internal linking for geniuzs.com."
+        ),
+        model,
+    )
+
+
+def publisher_agent(model: str | None = None) -> Agent:
+    return _agent(
+        "GTM Publisher Agent",
+        "Route approved content to the right platform via n8n and Postiz",
+        (
+            f"{GENIUS_CONTEXT} You convert approved drafts into publish plans: platform, schedule, "
+            "channel (social/email/voice), and n8n routing notes. Output structured JSON for automation."
+        ),
+        model,
+    )
+
+
+AGENT_FACTORIES = {
+    "strategist": strategist_agent,
+    "content": content_agent,
+    "visual": visual_agent,
+    "monitor": monitor_agent,
+    "outreach": outreach_agent,
+    "seo": seo_agent,
+    "publisher": publisher_agent,
+}

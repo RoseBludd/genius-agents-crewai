@@ -1,4 +1,4 @@
-"""Genius GTM Agents — CrewAI Strategist + Content on Railway, CADIS via RunPod."""
+"""Genius GTM Agents — 7 specialized agents + multi-agent pipelines on Railway."""
 from __future__ import annotations
 
 import os
@@ -12,10 +12,12 @@ from pydantic import BaseModel, Field
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 os.environ.setdefault("CREWAI_TELEMETRY", "false")
 
+from agents.registry import AGENT_CATALOG, PIPELINE_CATALOG  # noqa: E402
+
 app = FastAPI(
     title="Genius GTM Agents",
-    description="CrewAI Strategist + Content agents with OpenAI-compatible proxy to RunPod CADIS.",
-    version="1.0.0",
+    description="Seven GTM agents with direct RunPod + CrewAI pipelines, OpenAI-compatible proxy.",
+    version="2.0.0",
 )
 
 API_KEY = os.getenv("LITELLM_MASTER_KEY", "GeniusAgents2026!")
@@ -27,32 +29,13 @@ INTERNAL_BASE = os.getenv(
     f"http://127.0.0.1:{os.getenv('PORT', '8080')}/v1/internal",
 ).rstrip("/")
 
-AGENT_CATALOG = {
-    "strategist": {
-        "name": "Strategist Agent",
-        "role": "Campaign Director",
-        "model": "CADIS (RunPod)",
-        "description": "Plans GTM calendar, messaging angles, and channel prioritization.",
-    },
-    "content": {
-        "name": "Content Agent",
-        "role": "Copy & Posts",
-        "model": "CADIS (RunPod)",
-        "description": "Writes Reddit, HN, PH, email, and social copy per channel voice.",
-    },
-    "monitor": {
-        "name": "Monitor Agent",
-        "role": "Listener & Intelligence",
-        "model": "CADIS (RunPod)",
-        "description": "Reads PostHog analytics, flags funnel drop-offs and pricing hot leads.",
-    },
-    "outreach": {
-        "name": "Outreach Agent",
-        "role": "Calls & Email Blast",
-        "model": "CADIS (RunPod)",
-        "description": "Personalizes cold and triggered emails for Emailzs sequences.",
-    },
-}
+AgentId = Literal[
+    "strategist", "content", "visual", "monitor", "outreach", "seo", "publisher",
+]
+PipelineId = Literal[
+    "campaign", "launch", "intelligence", "seo_content", "publish_ready", "full_gtm",
+]
+ExecutionMode = Literal["direct", "crew"]
 
 
 def require_key(authorization: Optional[str] = Header(None), x_api_key: Optional[str] = Header(None)) -> None:
@@ -68,62 +51,163 @@ def require_key(authorization: Optional[str] = Header(None), x_api_key: Optional
 class AgentRunRequest(BaseModel):
     task: str = Field(..., description="Natural language task for the agent")
     model: Optional[str] = Field(None, description="RunPod model id (default gemma4:12b)")
+    context: Optional[str] = Field(None, description="Optional context (PostHog data, prior agent output)")
+    mode: Optional[ExecutionMode] = Field(None, description="direct (fast) or crew (CrewAI orchestration)")
 
 
 class AgentRunByTypeRequest(AgentRunRequest):
-    agent: Literal["strategist", "content", "monitor", "outreach"] = Field(..., description="Agent to run")
+    agent: AgentId = Field(..., description="Agent to run")
+
+
+class PipelineRunRequest(BaseModel):
+    pipeline: PipelineId = Field(..., description="Predefined multi-agent pipeline")
+    task: str = Field(..., description="Campaign or content goal")
+    model: Optional[str] = Field(None, description="RunPod model id")
+    mode: Optional[ExecutionMode] = Field(None, description="direct or crew")
+    context: Optional[str] = Field(None, description="Injected data (e.g. PostHog JSON for intelligence)")
+    generate_image: bool = Field(False, description="Generate FLUX image after visual step (launch/full_gtm)")
+    image_width: int = Field(1024, ge=256, le=2048)
+    image_height: int = Field(1024, ge=256, le=2048)
+
+
+class VisualGenerateRequest(BaseModel):
+    prompt: str = Field(..., description="FLUX image prompt")
+    width: int = Field(1024, ge=256, le=2048)
+    height: int = Field(1024, ge=256, le=2048)
+    task: Optional[str] = Field(None, description="Optional brief for Visual Agent before generation")
+
+
+class CrewRunRequest(BaseModel):
+    agents: list[AgentId] = Field(..., min_length=1, max_length=7)
+    task: str = Field(...)
+    model: Optional[str] = None
 
 
 @app.get("/health")
 @app.get("/health/liveliness")
 async def health():
-    return {"status": "ok", "service": "agents-crewai", "ts": datetime.now(timezone.utc).isoformat()}
+    return {
+        "status": "ok",
+        "service": "agents-crewai",
+        "agents": len(AGENT_CATALOG),
+        "pipelines": len(PIPELINE_CATALOG),
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @app.get("/agents", dependencies=[Depends(require_key)])
 async def list_agents():
-    return {"agents": AGENT_CATALOG}
+    return {"agents": AGENT_CATALOG, "pipelines": PIPELINE_CATALOG}
 
 
 @app.post("/agents/run", dependencies=[Depends(require_key)])
-def run_agent(req: AgentRunByTypeRequest):
-    return _execute_agent(req.agent, req.task, req.model)
+def run_agent_by_type(req: AgentRunByTypeRequest):
+    return _execute_agent(req.agent, req.task, req.model, req.context, req.mode)
 
 
-@app.post("/agents/strategist", dependencies=[Depends(require_key)])
-def run_strategist(req: AgentRunRequest):
-    return _execute_agent("strategist", req.task, req.model)
+@app.post("/agents/pipeline/run", dependencies=[Depends(require_key)])
+def run_pipeline_endpoint(req: PipelineRunRequest):
+    from agents.orchestrator import run_pipeline
 
-
-@app.post("/agents/content", dependencies=[Depends(require_key)])
-def run_content(req: AgentRunRequest):
-    return _execute_agent("content", req.task, req.model)
-
-
-@app.post("/agents/monitor", dependencies=[Depends(require_key)])
-def run_monitor(req: AgentRunRequest):
-    return _execute_agent("monitor", req.task, req.model)
-
-
-@app.post("/agents/outreach", dependencies=[Depends(require_key)])
-def run_outreach(req: AgentRunRequest):
-    return _execute_agent("outreach", req.task, req.model)
-
-
-def _execute_agent(agent: str, task: str, model: Optional[str]) -> dict[str, Any]:
-    from agents.direct_runner import run_agent_direct
-
-    model_id = model or DEFAULT_MODEL
     try:
-        response = run_agent_direct(agent, task, model_id)
+        result = run_pipeline(
+            req.pipeline,
+            req.task,
+            req.model,
+            req.mode,
+            req.context,
+            req.generate_image,
+            req.image_width,
+            req.image_height,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Pipeline failed: {exc}") from exc
+    return result
+
+
+@app.post("/agents/crew/run", dependencies=[Depends(require_key)])
+def run_crew_endpoint(req: CrewRunRequest):
+    from agents.crew_runner import run_multi_agent_crew
+
+    try:
+        response = run_multi_agent_crew(req.agents, req.task, req.model)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Crew failed: {exc}") from exc
+    return {
+        "status": "completed",
+        "agents": req.agents,
+        "response": response,
+        "model": req.model or DEFAULT_MODEL,
+        "via": "crewai_crew",
+    }
+
+
+@app.post("/agents/visual/generate", dependencies=[Depends(require_key)])
+def visual_generate(req: VisualGenerateRequest):
+    """Visual Agent brief (optional) + RunPod FLUX image generation."""
+    from agents.direct_runner import run_agent_direct
+    from agents.image_gen import generate_flux_image
+
+    brief = None
+    if req.task:
+        try:
+            brief = run_agent_direct("visual", req.task, None, None)
+        except Exception as exc:
+            brief = f"(brief failed: {exc})"
+
+    prompt = req.prompt
+    if brief and not req.prompt:
+        prompt = brief[:500]
+
+    try:
+        image = generate_flux_image(prompt, req.width, req.height)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Image generation failed: {exc}") from exc
+
+    return {
+        "status": "completed",
+        "agent": "visual",
+        "brief": brief,
+        "prompt": prompt,
+        "image": image,
+    }
+
+
+@app.post("/agents/{agent_id}", dependencies=[Depends(require_key)])
+def run_agent_endpoint(agent_id: AgentId, req: AgentRunRequest):
+    return _execute_agent(agent_id, req.task, req.model, req.context, req.mode)
+
+
+def _execute_agent(
+    agent: str,
+    task: str,
+    model: Optional[str],
+    context: Optional[str] = None,
+    mode: Optional[ExecutionMode] = None,
+) -> dict[str, Any]:
+    model_id = model or DEFAULT_MODEL
+    exec_mode = (mode or os.getenv("CREWAI_EXECUTION_MODE", "direct")).lower()
+
+    try:
+        if exec_mode == "crew":
+            from agents.crew_runner import run_agent_crew
+
+            response = run_agent_crew(agent, task, model_id, context)
+            via = "crewai"
+        else:
+            from agents.direct_runner import run_agent_direct
+
+            response = run_agent_direct(agent, task, model_id, context)
+            via = "runpod_direct"
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Agent execution failed: {exc}") from exc
+
     return {
         "status": "completed",
         "agent": agent,
         "response": response,
         "model": model_id,
-        "via": "runpod_direct",
+        "via": via,
     }
 
 
@@ -140,10 +224,7 @@ async def list_models():
 
 @app.post("/v1/internal/chat/completions")
 async def internal_chat_completions(body: dict[str, Any]):
-    """
-    CrewAI → RunPod proxy with the same model routing as chat.geniuzs.com.
-    Normalizes reasoning-model responses (empty content + reasoning field).
-    """
+    """CrewAI → RunPod proxy with the same model routing as chat.geniuzs.com."""
     from agents.runpod_compat import (
         ensure_max_tokens,
         normalize_completion,
@@ -174,5 +255,4 @@ async def internal_chat_completions(body: dict[str, Any]):
 
 @app.post("/v1/chat/completions", dependencies=[Depends(require_key)])
 async def chat_completions(body: dict[str, Any]):
-    """OpenAI-compatible proxy → internal RunPod compat layer."""
     return await internal_chat_completions(body)
