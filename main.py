@@ -86,27 +86,27 @@ async def list_agents():
 
 
 @app.post("/agents/run", dependencies=[Depends(require_key)])
-async def run_agent(req: AgentRunByTypeRequest):
+def run_agent(req: AgentRunByTypeRequest):
     return _execute_agent(req.agent, req.task, req.model)
 
 
 @app.post("/agents/strategist", dependencies=[Depends(require_key)])
-async def run_strategist(req: AgentRunRequest):
+def run_strategist(req: AgentRunRequest):
     return _execute_agent("strategist", req.task, req.model)
 
 
 @app.post("/agents/content", dependencies=[Depends(require_key)])
-async def run_content(req: AgentRunRequest):
+def run_content(req: AgentRunRequest):
     return _execute_agent("content", req.task, req.model)
 
 
 @app.post("/agents/monitor", dependencies=[Depends(require_key)])
-async def run_monitor(req: AgentRunRequest):
+def run_monitor(req: AgentRunRequest):
     return _execute_agent("monitor", req.task, req.model)
 
 
 @app.post("/agents/outreach", dependencies=[Depends(require_key)])
-async def run_outreach(req: AgentRunRequest):
+def run_outreach(req: AgentRunRequest):
     return _execute_agent("outreach", req.task, req.model)
 
 
